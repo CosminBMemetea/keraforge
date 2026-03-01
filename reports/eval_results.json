@@ -1,0 +1,372 @@
+{
+  "generated_at": "2026-03-01T16:09:55.439983+00:00",
+  "dataset": "eval/questions.jsonl",
+  "config": {
+    "llm": "ollama",
+    "mode": "workflow",
+    "collection": "querra_docs",
+    "device": "auto",
+    "top_k": 3,
+    "min_score": 0.35,
+    "min_avg_score": 0.25,
+    "min_distinct_docs": 1,
+    "max_context_chars": 2500,
+    "max_answer_chars": 700
+  },
+  "overall": {
+    "total_cases": 12,
+    "decision_accuracy": 1.0,
+    "retrieval_hit_rate": 1.0,
+    "citation_hit_rate": 1.0,
+    "abstain_accuracy": 1.0,
+    "avg_latency_ms": 2749.5733333333333
+  },
+  "by_query_language": {
+    "RO": {
+      "total_cases": 4,
+      "decision_accuracy": 1.0,
+      "retrieval_hit_rate": 1.0,
+      "citation_hit_rate": 1.0,
+      "abstain_accuracy": 1.0,
+      "avg_latency_ms": 5821.235
+    },
+    "PL": {
+      "total_cases": 4,
+      "decision_accuracy": 1.0,
+      "retrieval_hit_rate": 1.0,
+      "citation_hit_rate": 1.0,
+      "abstain_accuracy": 1.0,
+      "avg_latency_ms": 1549.4425
+    },
+    "EN": {
+      "total_cases": 2,
+      "decision_accuracy": 1.0,
+      "retrieval_hit_rate": 1.0,
+      "citation_hit_rate": 1.0,
+      "abstain_accuracy": 1.0,
+      "avg_latency_ms": 959.0550000000001
+    },
+    "DE": {
+      "total_cases": 2,
+      "decision_accuracy": 1.0,
+      "retrieval_hit_rate": 1.0,
+      "citation_hit_rate": 1.0,
+      "abstain_accuracy": 1.0,
+      "avg_latency_ms": 797.03
+    }
+  },
+  "results": [
+    {
+      "id": "ro_policy_scope",
+      "query": "Care este scopul politicii de generare a datelor sintetice?",
+      "query_lang": "RO",
+      "lang": "RO",
+      "doc_type": "policy",
+      "expected_decision": "grounded",
+      "actual_decision": "grounded",
+      "decision_match": true,
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "abstain_match": true,
+      "grounded_expected": true,
+      "grounded_returned": true,
+      "latency_ms": 17499.42,
+      "top_score": 0.7529581,
+      "avg_score": 0.7529581,
+      "reasons": [
+        "ok"
+      ],
+      "citations": [
+        "docs/policy_ro.md#chunk=0"
+      ],
+      "notes": "Romanian grounded retrieval against the RO policy."
+    },
+    {
+      "id": "ro_policy_risks",
+      "query": "Ce riscuri sunt mentionate in politica de generare a datelor sintetice?",
+      "query_lang": "RO",
+      "lang": "RO",
+      "doc_type": "policy",
+      "expected_decision": "grounded",
+      "actual_decision": "grounded",
+      "decision_match": true,
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "abstain_match": true,
+      "grounded_expected": true,
+      "grounded_returned": true,
+      "latency_ms": 2232.69,
+      "top_score": 0.69794536,
+      "avg_score": 0.69794536,
+      "reasons": [
+        "ok"
+      ],
+      "citations": [
+        "docs/policy_ro.md#chunk=0"
+      ],
+      "notes": "Romanian retrieval for the risk section summary."
+    },
+    {
+      "id": "ro_policy_audit",
+      "query": "Politica mentioneaza auditul?",
+      "query_lang": "RO",
+      "lang": "RO",
+      "doc_type": "policy",
+      "expected_decision": "grounded",
+      "actual_decision": "grounded",
+      "decision_match": true,
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "abstain_match": true,
+      "grounded_expected": true,
+      "grounded_returned": true,
+      "latency_ms": 2517.52,
+      "top_score": 0.5640468,
+      "avg_score": 0.5640468,
+      "reasons": [
+        "ok"
+      ],
+      "citations": [
+        "docs/policy_ro.md#chunk=0"
+      ],
+      "notes": "Short Romanian question with a direct answer in the RO policy."
+    },
+    {
+      "id": "ro_wrong_doc_type",
+      "query": "Care este scopul politicii de generare a datelor sintetice?",
+      "query_lang": "RO",
+      "lang": "RO",
+      "doc_type": "guide",
+      "expected_decision": "abstain",
+      "actual_decision": "abstain",
+      "decision_match": true,
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "abstain_match": true,
+      "grounded_expected": false,
+      "grounded_returned": false,
+      "latency_ms": 1035.31,
+      "top_score": 0.0,
+      "avg_score": 0.0,
+      "reasons": [
+        "no_nodes",
+        "top_score<0.35",
+        "avg_score<0.25",
+        "distinct_docs<1",
+        "empty_context_budget"
+      ],
+      "citations": [],
+      "notes": "Romanian query with a missing doc_type filter should abstain."
+    },
+    {
+      "id": "pl_policy_scope",
+      "query": "Jaki jest cel polityki generowania danych syntetycznych?",
+      "query_lang": "PL",
+      "lang": "PL",
+      "doc_type": "policy",
+      "expected_decision": "grounded",
+      "actual_decision": "grounded",
+      "decision_match": true,
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "abstain_match": true,
+      "grounded_expected": true,
+      "grounded_returned": true,
+      "latency_ms": 1991.17,
+      "top_score": 0.665086,
+      "avg_score": 0.665086,
+      "reasons": [
+        "ok"
+      ],
+      "citations": [
+        "docs/policy_pl.md#chunk=0"
+      ],
+      "notes": "Polish grounded retrieval against the PL policy."
+    },
+    {
+      "id": "pl_policy_compliance",
+      "query": "Czy polityka odnosi sie do zgodnosci i EU AI Act?",
+      "query_lang": "PL",
+      "lang": "PL",
+      "doc_type": "policy",
+      "expected_decision": "grounded",
+      "actual_decision": "grounded",
+      "decision_match": true,
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "abstain_match": true,
+      "grounded_expected": true,
+      "grounded_returned": true,
+      "latency_ms": 1657.01,
+      "top_score": 0.7032361,
+      "avg_score": 0.7032361,
+      "reasons": [
+        "ok"
+      ],
+      "citations": [
+        "docs/policy_pl.md#chunk=0"
+      ],
+      "notes": "Polish compliance-oriented query."
+    },
+    {
+      "id": "pl_policy_audit",
+      "query": "Czy polityka wspomina o audycie i sledzeniu zrodel?",
+      "query_lang": "PL",
+      "lang": "PL",
+      "doc_type": "policy",
+      "expected_decision": "grounded",
+      "actual_decision": "grounded",
+      "decision_match": true,
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "abstain_match": true,
+      "grounded_expected": true,
+      "grounded_returned": true,
+      "latency_ms": 1827.89,
+      "top_score": 0.6344263,
+      "avg_score": 0.6344263,
+      "reasons": [
+        "ok"
+      ],
+      "citations": [
+        "docs/policy_pl.md#chunk=0"
+      ],
+      "notes": "Polish audit and provenance query."
+    },
+    {
+      "id": "pl_wrong_doc_type",
+      "query": "Jaki jest cel polityki generowania danych syntetycznych?",
+      "query_lang": "PL",
+      "lang": "PL",
+      "doc_type": "guide",
+      "expected_decision": "abstain",
+      "actual_decision": "abstain",
+      "decision_match": true,
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "abstain_match": true,
+      "grounded_expected": false,
+      "grounded_returned": false,
+      "latency_ms": 721.7,
+      "top_score": 0.0,
+      "avg_score": 0.0,
+      "reasons": [
+        "no_nodes",
+        "top_score<0.35",
+        "avg_score<0.25",
+        "distinct_docs<1",
+        "empty_context_budget"
+      ],
+      "citations": [],
+      "notes": "Polish query with a missing doc_type filter should abstain."
+    },
+    {
+      "id": "en_missing_language",
+      "query": "What does the synthetic data policy say about compliance?",
+      "query_lang": "EN",
+      "lang": "EN",
+      "doc_type": "policy",
+      "expected_decision": "abstain",
+      "actual_decision": "abstain",
+      "decision_match": true,
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "abstain_match": true,
+      "grounded_expected": false,
+      "grounded_returned": false,
+      "latency_ms": 1011.17,
+      "top_score": 0.0,
+      "avg_score": 0.0,
+      "reasons": [
+        "no_nodes",
+        "top_score<0.35",
+        "avg_score<0.25",
+        "distinct_docs<1",
+        "empty_context_budget"
+      ],
+      "citations": [],
+      "notes": "English query filtered to a missing language should abstain."
+    },
+    {
+      "id": "en_missing_doc_type",
+      "query": "What is the purpose of the synthetic data policy?",
+      "query_lang": "EN",
+      "lang": "RO",
+      "doc_type": "guide",
+      "expected_decision": "abstain",
+      "actual_decision": "abstain",
+      "decision_match": true,
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "abstain_match": true,
+      "grounded_expected": false,
+      "grounded_returned": false,
+      "latency_ms": 906.94,
+      "top_score": 0.0,
+      "avg_score": 0.0,
+      "reasons": [
+        "no_nodes",
+        "top_score<0.35",
+        "avg_score<0.25",
+        "distinct_docs<1",
+        "empty_context_budget"
+      ],
+      "citations": [],
+      "notes": "Wrong doc_type filter should abstain even if the language exists."
+    },
+    {
+      "id": "de_missing_language",
+      "query": "Was sagt die Richtlinie ueber synthetische Daten und Audit?",
+      "query_lang": "DE",
+      "lang": "DE",
+      "doc_type": "policy",
+      "expected_decision": "abstain",
+      "actual_decision": "abstain",
+      "decision_match": true,
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "abstain_match": true,
+      "grounded_expected": false,
+      "grounded_returned": false,
+      "latency_ms": 740.56,
+      "top_score": 0.0,
+      "avg_score": 0.0,
+      "reasons": [
+        "no_nodes",
+        "top_score<0.35",
+        "avg_score<0.25",
+        "distinct_docs<1",
+        "empty_context_budget"
+      ],
+      "citations": [],
+      "notes": "German query filtered to a missing language should abstain."
+    },
+    {
+      "id": "de_missing_language_scope",
+      "query": "Was ist der Zweck der Richtlinie fuer synthetische Daten?",
+      "query_lang": "DE",
+      "lang": "DE",
+      "doc_type": "policy",
+      "expected_decision": "abstain",
+      "actual_decision": "abstain",
+      "decision_match": true,
+      "retrieval_hit": true,
+      "citation_hit": true,
+      "abstain_match": true,
+      "grounded_expected": false,
+      "grounded_returned": false,
+      "latency_ms": 853.5,
+      "top_score": 0.0,
+      "avg_score": 0.0,
+      "reasons": [
+        "no_nodes",
+        "top_score<0.35",
+        "avg_score<0.25",
+        "distinct_docs<1",
+        "empty_context_budget"
+      ],
+      "citations": [],
+      "notes": "German scope query against a missing language should abstain."
+    }
+  ]
+}

@@ -43,3 +43,14 @@ tail -n 1 data/logs/rag_traces.jsonl
 ### Day VI
 python scripts/rag_query.py "politica de date sintetice" --lang RO --llm ollama --mode workflow
 python scripts/rag_query.py "politica de date sintetice" --lang RO --llm ollama --mode agent
+
+### Day VII
+python scripts/eval.py --llm ollama --mode workflow
+cat reports/eval_report.md
+
+# Current local eval snapshot
+# - 12 cases
+# - 100% decision accuracy
+# - 100% retrieval hit rate
+# - 100% citation hit rate
+# - 100% abstain accuracy

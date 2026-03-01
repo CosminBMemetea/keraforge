@@ -196,6 +196,42 @@ Example:
 python scripts/rag_query.py "politica de date sintetice" --lang RO --llm ollama --mode agent
 ```
 
+## Evaluation
+
+Day 7 adds a small evaluation harness over the same guarded query path used by the CLI and API.
+
+Run it with:
+
+```bash
+python scripts/eval.py --llm ollama --mode workflow
+```
+
+The eval dataset lives in `eval/questions.jsonl` and currently mixes:
+
+- grounded Romanian cases
+- grounded Polish cases
+- abstain controls for missing language/doc type filters in EN/DE/RO/PL
+
+Outputs:
+
+- `reports/eval_results.json`
+- `reports/eval_report.md`
+
+Current local scorecard on the bundled corpus:
+
+- 12 cases
+- 100% decision accuracy
+- 100% retrieval hit rate
+- 100% citation hit rate
+- 100% abstain accuracy
+- 2749.57 ms average latency
+
+Important limitation:
+
+- the current corpus only contains `RO` and `PL` policy documents
+- `EN` and `DE` eval cases are negative controls for abstain behavior, not positive multilingual retrieval coverage
+- this is enough for a Day 7 harness, but not enough yet for a strong multilingual product claim
+
 ## Troubleshooting
 
 ```bash
