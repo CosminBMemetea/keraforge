@@ -13,9 +13,11 @@ from scripts.runtime import (
     DEFAULT_EMBED_MODEL,
     DEFAULT_PROMPT_VERSION,
     DEFAULT_QDRANT_URL,
+    DEFAULT_RAG_MODE,
     DEFAULT_TRACE_LOG_PATH,
     default_max_answer_chars,
     default_max_context_chars,
+    default_max_tool_calls,
     default_min_avg_score,
     default_min_distinct_docs,
     default_min_score,
@@ -34,6 +36,8 @@ def main():
     ap.add_argument("--llm", default="ollama", choices=["ollama", "openai"])
     ap.add_argument("--embed_model", default=DEFAULT_EMBED_MODEL)
     ap.add_argument("--device", default="auto", choices=["auto", "cpu", "mps", "cuda"])
+    ap.add_argument("--mode", default=DEFAULT_RAG_MODE, choices=["workflow", "agent"])
+    ap.add_argument("--max_tool_calls", type=int, default=default_max_tool_calls())
     ap.add_argument("--prompt_version", default=DEFAULT_PROMPT_VERSION)
     ap.add_argument("--trace_log_path", default=DEFAULT_TRACE_LOG_PATH)
     ap.add_argument(
@@ -79,6 +83,8 @@ def main():
             llm=args.llm,
             embed_model=args.embed_model,
             device=args.device,
+            mode=args.mode,
+            max_tool_calls=args.max_tool_calls,
             min_score=args.min_score,
             min_avg_score=args.min_avg_score,
             min_distinct_docs=args.min_distinct_docs,
@@ -93,6 +99,7 @@ def main():
     print("\n=== WORKFLOW ===\n")
     print(f"query_id={result['query_id']}")
     print(f"query_type={result['query_type']}")
+    print(f"mode={result['mode']}")
     print(f"prompt_version={result['prompt_version']}")
     print(f"latency_ms={result['latency_ms']:.2f}")
     for step in result["workflow_steps"]:
@@ -100,6 +107,17 @@ def main():
             f"- {step['step']} status={step['status']} duration_ms={step['duration_ms']:.2f} "
             f"details={step['details']}"
         )
+
+    print("\n=== TOOLS ===\n")
+    if result["tool_calls"]:
+        for tool_call in result["tool_calls"]:
+            print(
+                f"- {tool_call['tool']} status={tool_call['status']} "
+                f"duration_ms={tool_call['duration_ms']:.2f} "
+                f"inputs={tool_call['inputs']} outputs={tool_call['outputs']}"
+            )
+    else:
+        print("No tool calls recorded.")
 
     print_guardrail_report(result["assessment"])
 

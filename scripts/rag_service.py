@@ -12,9 +12,11 @@ from scripts.runtime import (
     DEFAULT_EMBED_MODEL,
     DEFAULT_PROMPT_VERSION,
     DEFAULT_QDRANT_URL,
+    DEFAULT_RAG_MODE,
     DEFAULT_TRACE_LOG_PATH,
     default_max_answer_chars,
     default_max_context_chars,
+    default_max_tool_calls,
     default_min_avg_score,
     default_min_distinct_docs,
     default_min_score,
@@ -229,6 +231,16 @@ def make_step(step: str, status: str, started_at: float, details: Optional[Dict]
     }
 
 
+def make_tool_call(tool: str, started_at: float, inputs: Dict, outputs: Dict, status: str = "completed") -> Dict:
+    return {
+        "tool": tool,
+        "status": status,
+        "duration_ms": round((perf_counter() - started_at) * 1000, 2),
+        "inputs": inputs,
+        "outputs": outputs,
+    }
+
+
 def append_trace_log(path: str, record: Dict) -> None:
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -242,11 +254,13 @@ def append_error_trace(
     query_id: str,
     query: str,
     query_type: str,
+    mode: str,
     prompt_version: str,
     llm: str,
     embed_model: str,
     collection: str,
     workflow_steps: List[Dict],
+    tool_calls: List[Dict],
     request_started: float,
     error: str,
 ) -> None:
@@ -256,6 +270,7 @@ def append_error_trace(
             "query_id": query_id,
             "query": query,
             "query_type": query_type,
+            "mode": mode,
             "decision": "error",
             "prompt_version": prompt_version,
             "model": llm,
@@ -264,13 +279,14 @@ def append_error_trace(
             "latency_ms": round((perf_counter() - request_started) * 1000, 2),
             "assessment": None,
             "workflow_steps": workflow_steps,
+            "tool_calls": tool_calls,
             "citations": [],
             "error": error,
         },
     )
 
 
-def build_prompt(query: str, context: str, query_type: str, prompt_version: str) -> str:
+def build_workflow_prompt(query: str, context: str, query_type: str, prompt_version: str) -> str:
     action_line = (
         "Answer the question directly."
         if query_type == "question"
@@ -278,6 +294,7 @@ def build_prompt(query: str, context: str, query_type: str, prompt_version: str)
     )
     return f"""Prompt version: {prompt_version}
 You are a helpful assistant for a multilingual policy knowledge base.
+Mode: workflow
 {action_line}
 Answer using ONLY the CONTEXT.
 If the context is insufficient, say exactly: "I don't know based on the current sources."
@@ -288,6 +305,39 @@ CONTEXT:
 {context}
 
 QUESTION:
+{query}
+
+OUTPUT FORMAT:
+- Answer (short, direct)
+- Citations: list the bracket numbers you used, e.g. [1], [3]
+"""
+
+
+def build_agent_prompt(query: str, context: str, query_type: str, prompt_version: str) -> str:
+    action_line = (
+        "Use the tool outputs to answer the question directly."
+        if query_type == "question"
+        else "Use the tool outputs to fulfill the request directly."
+    )
+    return f"""Prompt version: {prompt_version}
+You are a bounded enterprise agent for a multilingual policy knowledge base.
+Mode: agent
+Available tools already executed:
+1. tool_search_docs
+2. tool_summarize
+
+Rules:
+- Use ONLY the tool outputs below.
+- Do not invent facts outside those tool outputs.
+- Return a concise final answer with citations.
+- If the tool outputs are insufficient, say exactly: "I don't know based on the current sources."
+
+{action_line}
+
+TOOL OUTPUTS:
+{context}
+
+USER QUERY:
 {query}
 
 OUTPUT FORMAT:
@@ -340,6 +390,111 @@ def get_index_and_settings(
     return index, Settings
 
 
+def get_runtime_components(qdrant: str, collection: str, embed_model: str, device: str, llm: str):
+    try:
+        import llama_index  # noqa: F401
+        import qdrant_client  # noqa: F401
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "Missing RAG dependencies. Install: "
+            "pip install -U python-dotenv llama-index llama-index-vector-stores-qdrant "
+            "llama-index-embeddings-huggingface llama-index-llms-ollama fastapi uvicorn"
+        ) from exc
+
+    resolved_device = default_sentence_transformer_device(device)
+    index, settings = get_index_and_settings(
+        qdrant=qdrant,
+        collection=collection,
+        embed_model=embed_model,
+        device=resolved_device,
+        llm=llm,
+    )
+    return index, settings, resolved_device
+
+
+def tool_search_docs(
+    *,
+    index,
+    query: str,
+    top_k: int,
+    lang: Optional[str],
+    doc_type: Optional[str],
+    max_context_chars: int,
+) -> Dict:
+    filters = build_filters(lang, doc_type)
+    retriever = index.as_retriever(similarity_top_k=top_k, filters=filters)
+    nodes = retriever.retrieve(query)
+    citations = format_citations(nodes)
+    top_chunks = format_top_chunks(nodes)
+    context = build_context(nodes, max_context_chars=max_context_chars)
+    return {
+        "nodes": nodes,
+        "citations": citations,
+        "top_chunks": top_chunks,
+        "context": context,
+    }
+
+
+def tool_summarize_context(
+    *,
+    settings,
+    query: str,
+    query_type: str,
+    prompt_version: str,
+    mode: str,
+    context_text: str,
+) -> str:
+    prompt_builder = build_agent_prompt if mode == "agent" else build_workflow_prompt
+    prompt = prompt_builder(query, context_text, query_type=query_type, prompt_version=prompt_version)
+    return settings.llm.complete(prompt).text.strip()
+
+
+def finalize_result(
+    *,
+    query_id: str,
+    query: str,
+    query_type: str,
+    mode: str,
+    prompt_version: str,
+    assessment: Dict,
+    citations: List[Dict],
+    top_chunks: List[Dict],
+    lang: Optional[str],
+    doc_type: Optional[str],
+    llm: str,
+    embed_model: str,
+    resolved_device: str,
+    collection: str,
+    workflow_steps: List[Dict],
+    tool_calls: List[Dict],
+    context_chars: int,
+    context_nodes_used: int,
+) -> Dict:
+    return {
+        "query_id": query_id,
+        "query": query,
+        "query_type": query_type,
+        "mode": mode,
+        "prompt_version": prompt_version,
+        "decision": "grounded" if assessment["grounded"] else "abstain",
+        "answer": "I don't know based on the current sources.",
+        "clarifying_question": None,
+        "assessment": assessment,
+        "citations": citations,
+        "top_chunks": top_chunks,
+        "tool_calls": tool_calls,
+        "workflow_steps": workflow_steps,
+        "context_chars": context_chars,
+        "context_nodes_used": context_nodes_used,
+        "lang": lang.upper() if lang else None,
+        "doc_type": doc_type.lower() if doc_type else None,
+        "llm": llm,
+        "embed_model": embed_model,
+        "device": resolved_device,
+        "collection": collection,
+    }
+
+
 def run_guarded_rag_query(
     query: str,
     qdrant: str = DEFAULT_QDRANT_URL,
@@ -350,6 +505,8 @@ def run_guarded_rag_query(
     llm: str = "ollama",
     embed_model: str = DEFAULT_EMBED_MODEL,
     device: str = "auto",
+    mode: str = DEFAULT_RAG_MODE,
+    max_tool_calls: int = default_max_tool_calls(),
     min_score: float = default_min_score(),
     min_avg_score: float = default_min_avg_score(),
     min_distinct_docs: int = default_min_distinct_docs(),
@@ -358,54 +515,83 @@ def run_guarded_rag_query(
     prompt_version: str = DEFAULT_PROMPT_VERSION,
     trace_log_path: str = DEFAULT_TRACE_LOG_PATH,
 ) -> Dict:
+    if mode not in {"workflow", "agent"}:
+        raise RuntimeError("Unsupported mode. Use 'workflow' or 'agent'.")
+
+    if max_tool_calls < 1:
+        raise RuntimeError("max_tool_calls must be at least 1.")
+
     query_id = str(uuid4())
-    workflow_steps = []
+    workflow_steps: List[Dict] = []
+    tool_calls: List[Dict] = []
     request_started = perf_counter()
     load_env()
+
     step_started = perf_counter()
     query_type = classify_query_type(query)
     workflow_steps.append(
-        make_step("classify_query", "completed", step_started, {"query_type": query_type})
+        make_step("classify_query", "completed", step_started, {"query_type": query_type, "mode": mode})
     )
 
     try:
-        import llama_index
-        import qdrant_client
-    except ModuleNotFoundError as exc:
-        message = (
-            "Missing RAG dependencies. Install: "
-            "pip install -U python-dotenv llama-index llama-index-vector-stores-qdrant "
-            "llama-index-embeddings-huggingface llama-index-llms-ollama fastapi uvicorn"
+        step_started = perf_counter()
+        index, settings, resolved_device = get_runtime_components(
+            qdrant=qdrant,
+            collection=collection,
+            embed_model=embed_model,
+            device=device,
+            llm=llm,
         )
+        workflow_steps.append(
+            make_step(
+                "prepare_runtime",
+                "completed",
+                step_started,
+                {"device": resolved_device, "collection": collection, "llm": llm},
+            )
+        )
+    except Exception as exc:
+        message = str(exc)
         append_error_trace(
             trace_log_path=trace_log_path,
             query_id=query_id,
             query=query,
             query_type=query_type,
+            mode=mode,
             prompt_version=prompt_version,
             llm=llm,
             embed_model=embed_model,
             collection=collection,
             workflow_steps=workflow_steps,
+            tool_calls=tool_calls,
             request_started=request_started,
             error=message,
         )
         raise RuntimeError(message) from exc
 
-    resolved_device = default_sentence_transformer_device(device)
-
     try:
         step_started = perf_counter()
-        index, settings = get_index_and_settings(
-            qdrant=qdrant,
-            collection=collection,
-            embed_model=embed_model,
-            device=resolved_device,
-            llm=llm,
+        search_started = perf_counter()
+        search_result = tool_search_docs(
+            index=index,
+            query=query,
+            top_k=top_k,
+            lang=lang,
+            doc_type=doc_type,
+            max_context_chars=max_context_chars,
         )
-        filters = build_filters(lang, doc_type)
-        retriever = index.as_retriever(similarity_top_k=top_k, filters=filters)
-        nodes = retriever.retrieve(query)
+        tool_calls.append(
+            make_tool_call(
+                "tool_search_docs",
+                search_started,
+                {"query": query, "lang": lang.upper() if lang else None, "doc_type": doc_type, "top_k": top_k},
+                {
+                    "retrieved_nodes": len(search_result["nodes"]),
+                    "context_chars": search_result["context"]["chars"],
+                    "citations": len(search_result["citations"]),
+                },
+            )
+        )
         workflow_steps.append(
             make_step(
                 "retrieve",
@@ -415,7 +601,7 @@ def run_guarded_rag_query(
                     "top_k": top_k,
                     "lang": lang.upper() if lang else None,
                     "doc_type": doc_type.lower() if doc_type else None,
-                    "retrieved_nodes": len(nodes),
+                    "retrieved_nodes": len(search_result["nodes"]),
                 },
             )
         )
@@ -426,11 +612,13 @@ def run_guarded_rag_query(
             query_id=query_id,
             query=query,
             query_type=query_type,
+            mode=mode,
             prompt_version=prompt_version,
             llm=llm,
             embed_model=embed_model,
             collection=collection,
             workflow_steps=workflow_steps,
+            tool_calls=tool_calls,
             request_started=request_started,
             error=message,
         )
@@ -438,16 +626,12 @@ def run_guarded_rag_query(
 
     step_started = perf_counter()
     assessment = assess_retrieval(
-        nodes,
+        search_result["nodes"],
         min_score=min_score,
         min_avg_score=min_avg_score,
         min_distinct_docs=min_distinct_docs,
     )
-    citations = format_citations(nodes)
-    top_chunks = format_top_chunks(nodes)
-    context = build_context(nodes, max_context_chars=max_context_chars)
-
-    if not context["text"]:
+    if not search_result["context"]["text"]:
         assessment["grounded"] = False
         assessment["reasons"] = assessment["reasons"] + ["empty_context_budget"]
 
@@ -466,27 +650,26 @@ def run_guarded_rag_query(
         )
     )
 
-    result = {
-        "query_id": query_id,
-        "query": query,
-        "query_type": query_type,
-        "prompt_version": prompt_version,
-        "decision": "grounded" if assessment["grounded"] else "abstain",
-        "answer": "I don't know based on the current sources.",
-        "clarifying_question": None,
-        "assessment": assessment,
-        "citations": citations,
-        "top_chunks": top_chunks,
-        "context_chars": context["chars"],
-        "context_nodes_used": context["used_nodes"],
-        "lang": lang.upper() if lang else None,
-        "doc_type": doc_type.lower() if doc_type else None,
-        "llm": llm,
-        "embed_model": embed_model,
-        "device": resolved_device,
-        "collection": collection,
-        "workflow_steps": workflow_steps,
-    }
+    result = finalize_result(
+        query_id=query_id,
+        query=query,
+        query_type=query_type,
+        mode=mode,
+        prompt_version=prompt_version,
+        assessment=assessment,
+        citations=search_result["citations"],
+        top_chunks=search_result["top_chunks"],
+        lang=lang,
+        doc_type=doc_type,
+        llm=llm,
+        embed_model=embed_model,
+        resolved_device=resolved_device,
+        collection=collection,
+        workflow_steps=workflow_steps,
+        tool_calls=tool_calls,
+        context_chars=search_result["context"]["chars"],
+        context_nodes_used=search_result["context"]["used_nodes"],
+    )
 
     if not assessment["grounded"]:
         result["clarifying_question"] = build_clarifying_question(lang, doc_type)
@@ -497,6 +680,7 @@ def run_guarded_rag_query(
                 "query_id": query_id,
                 "query": query,
                 "query_type": query_type,
+                "mode": mode,
                 "decision": result["decision"],
                 "prompt_version": prompt_version,
                 "model": llm,
@@ -505,23 +689,83 @@ def run_guarded_rag_query(
                 "latency_ms": result["latency_ms"],
                 "assessment": assessment,
                 "workflow_steps": workflow_steps,
-                "citations": citations,
+                "tool_calls": tool_calls,
+                "citations": result["citations"],
                 "error": None,
             },
         )
         return result
 
-    prompt = build_prompt(query, context["text"], query_type=query_type, prompt_version=prompt_version)
+    if mode == "workflow":
+        if max_tool_calls < 1:
+            raise RuntimeError("workflow mode requires at least one tool call.")
+        prompt_context = search_result["context"]["text"]
+    else:
+        if max_tool_calls < 2:
+            message = "agent mode requires max_tool_calls >= 2."
+            append_error_trace(
+                trace_log_path=trace_log_path,
+                query_id=query_id,
+                query=query,
+                query_type=query_type,
+                mode=mode,
+                prompt_version=prompt_version,
+                llm=llm,
+                embed_model=embed_model,
+                collection=collection,
+                workflow_steps=workflow_steps,
+                tool_calls=tool_calls,
+                request_started=request_started,
+                error=message,
+            )
+            raise RuntimeError(message)
+
+        summarize_started = perf_counter()
+        summary_text = "\n".join(
+            f"[{chunk['n']}] {chunk['title']} :: {chunk['snippet']}" for chunk in search_result["top_chunks"]
+        )
+        tool_calls.append(
+            make_tool_call(
+                "tool_summarize",
+                summarize_started,
+                {"chunks": len(search_result["top_chunks"]), "query_type": query_type},
+                {"summary_chars": len(summary_text)},
+            )
+        )
+        workflow_steps.append(
+            {
+                "step": "agent_plan",
+                "status": "completed",
+                "duration_ms": 0.0,
+                "details": {
+                    "tool_limit": max_tool_calls,
+                    "tool_calls_used": len(tool_calls),
+                    "plan": ["tool_search_docs", "tool_summarize"],
+                },
+            }
+        )
+        prompt_context = summary_text
 
     try:
         step_started = perf_counter()
-        raw_answer = settings.llm.complete(prompt).text.strip()
+        raw_answer = tool_summarize_context(
+            settings=settings,
+            query=query,
+            query_type=query_type,
+            prompt_version=prompt_version,
+            mode=mode,
+            context_text=prompt_context,
+        )
         workflow_steps.append(
             make_step(
                 "generate_answer",
                 "completed",
                 step_started,
-                {"prompt_chars": len(prompt), "context_chars": context["chars"]},
+                {
+                    "prompt_chars": len(prompt_context),
+                    "context_chars": search_result["context"]["chars"],
+                    "mode": mode,
+                },
             )
         )
     except Exception as exc:
@@ -531,18 +775,20 @@ def run_guarded_rag_query(
             query_id=query_id,
             query=query,
             query_type=query_type,
+            mode=mode,
             prompt_version=prompt_version,
             llm=llm,
             embed_model=embed_model,
             collection=collection,
             workflow_steps=workflow_steps,
+            tool_calls=tool_calls,
             request_started=request_started,
             error=message,
         )
         raise RuntimeError(message) from exc
 
     step_started = perf_counter()
-    post_guardrails = apply_generation_guardrails(raw_answer, citations, max_answer_chars=max_answer_chars)
+    post_guardrails = apply_generation_guardrails(raw_answer, result["citations"], max_answer_chars=max_answer_chars)
     result["answer"] = post_guardrails["answer"]
     workflow_steps.append(
         make_step(
@@ -564,6 +810,7 @@ def run_guarded_rag_query(
             "query_id": query_id,
             "query": query,
             "query_type": query_type,
+            "mode": mode,
             "decision": result["decision"],
             "prompt_version": prompt_version,
             "model": llm,
@@ -572,7 +819,8 @@ def run_guarded_rag_query(
             "latency_ms": result["latency_ms"],
             "assessment": assessment,
             "workflow_steps": workflow_steps,
-            "citations": citations,
+            "tool_calls": tool_calls,
+            "citations": result["citations"],
             "answer_preview": result["answer"][:240],
             "error": None,
         },

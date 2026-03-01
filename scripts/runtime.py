@@ -9,6 +9,7 @@ DEFAULT_EMBED_MODEL = os.getenv(
     "KERAFORGE_EMBED_MODEL",
     "sentence-transformers/all-MiniLM-L6-v2",
 )
+DEFAULT_RAG_MODE = os.getenv("KERAFORGE_RAG_MODE", "workflow")
 DEFAULT_PROMPT_VERSION = os.getenv("KERAFORGE_PROMPT_VERSION", "rag-v1")
 DEFAULT_TRACE_LOG_PATH = os.getenv("KERAFORGE_TRACE_LOG_PATH", "data/logs/rag_traces.jsonl")
 
@@ -43,6 +44,10 @@ def default_max_context_chars() -> int:
 
 def default_max_answer_chars() -> int:
     return int(os.getenv("KERAFORGE_MAX_ANSWER_CHARS", "700"))
+
+
+def default_max_tool_calls() -> int:
+    return int(os.getenv("KERAFORGE_MAX_TOOL_CALLS", "2"))
 
 
 def default_min_score() -> float:

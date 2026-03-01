@@ -39,3 +39,7 @@ curl -s http://127.0.0.1:8000/query \
 ### Day V
 python scripts/rag_query.py "politica de date sintetice" --lang RO --llm ollama
 tail -n 1 data/logs/rag_traces.jsonl
+
+### Day VI
+python scripts/rag_query.py "politica de date sintetice" --lang RO --llm ollama --mode workflow
+python scripts/rag_query.py "politica de date sintetice" --lang RO --llm ollama --mode agent

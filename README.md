@@ -70,6 +70,7 @@ python scripts/search.py "politica de date sintetice" --lang RO --device cpu
 source .venv/bin/activate
 python scripts/rag_query.py "politica de date sintetice" --lang RO --llm ollama
 python scripts/rag_query.py "zgodność dane syntetyczne" --lang PL --llm ollama --device cpu
+python scripts/rag_query.py "politica de date sintetice" --lang RO --llm ollama --mode agent
 ```
 
 Guardrails are built into `scripts/rag_query.py`:
@@ -168,6 +169,31 @@ Example:
 ```bash
 python scripts/rag_query.py "politica de date sintetice" --lang RO --llm ollama
 tail -n 1 data/logs/rag_traces.jsonl
+```
+
+## Agent Mode
+
+Day 6 adds two modes:
+
+- `mode=workflow`: deterministic default path
+- `mode=agent`: bounded internal agent with at most 2 tool calls by default
+
+The bounded agent can use only these internal tools:
+
+- `tool_search_docs`
+- `tool_summarize`
+
+The agent is intentionally constrained:
+
+- no external actions
+- max tool calls enforced
+- citations always returned
+- tool calls logged in the trace file and API response
+
+Example:
+
+```bash
+python scripts/rag_query.py "politica de date sintetice" --lang RO --llm ollama --mode agent
 ```
 
 ## Troubleshooting
