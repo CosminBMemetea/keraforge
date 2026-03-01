@@ -1,2 +1,38 @@
-venv
-.venv
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# Editors
+.idea/
+.vscode/
+
+# Local runtime data
+data/qdrant/
+.cache/
