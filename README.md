@@ -143,6 +143,33 @@ Example response shape:
 }
 ```
 
+## Workflow Tracing
+
+Day 5 makes the workflow explicit and traceable:
+
+- `classify_query`
+- `retrieve`
+- `guardrail_assessment`
+- `generate_answer`
+- `apply_guardrails`
+
+Each run writes a JSON line to `data/logs/rag_traces.jsonl` with:
+
+- `query_id`
+- `query_type`
+- `prompt_version`
+- retrieval assessment
+- citations
+- workflow step timings
+- total latency
+
+Example:
+
+```bash
+python scripts/rag_query.py "politica de date sintetice" --lang RO --llm ollama
+tail -n 1 data/logs/rag_traces.jsonl
+```
+
 ## Troubleshooting
 
 ```bash

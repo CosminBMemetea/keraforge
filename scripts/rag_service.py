@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
+import json
 import os
 from functools import lru_cache
+from pathlib import Path
+from time import perf_counter
 from typing import Dict, List, Optional
+from uuid import uuid4
 
 from scripts.runtime import (
     DEFAULT_COLLECTION,
     DEFAULT_EMBED_MODEL,
+    DEFAULT_PROMPT_VERSION,
     DEFAULT_QDRANT_URL,
+    DEFAULT_TRACE_LOG_PATH,
+    default_max_answer_chars,
     default_max_context_chars,
     default_min_avg_score,
     default_min_distinct_docs,
@@ -63,6 +70,34 @@ def build_source_ref(meta: Dict) -> str:
 
 def format_score(value: float) -> str:
     return f"{value:.4f}"
+
+
+def classify_query_type(query: str) -> str:
+    text = query.strip().lower()
+    request_markers = (
+        "list",
+        "summarize",
+        "extract",
+        "show",
+        "give me",
+        "provide",
+        "draft",
+        "generate",
+        "enumera",
+        "rezuma",
+        "arata",
+        "da-mi",
+        "listeaza",
+        "podaj",
+        "pokaz",
+        "wypisz",
+        "streść",
+    )
+    if text.endswith("?"):
+        return "question"
+    if any(text.startswith(marker) for marker in request_markers):
+        return "request"
+    return "question"
 
 
 def format_citations(nodes) -> List[Dict]:
@@ -185,6 +220,99 @@ def print_guardrail_report(assessment: Dict) -> None:
     print(f"reasons={', '.join(assessment['reasons'])}")
 
 
+def make_step(step: str, status: str, started_at: float, details: Optional[Dict] = None) -> Dict:
+    return {
+        "step": step,
+        "status": status,
+        "duration_ms": round((perf_counter() - started_at) * 1000, 2),
+        "details": details or {},
+    }
+
+
+def append_trace_log(path: str, record: Dict) -> None:
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+
+
+def append_error_trace(
+    *,
+    trace_log_path: str,
+    query_id: str,
+    query: str,
+    query_type: str,
+    prompt_version: str,
+    llm: str,
+    embed_model: str,
+    collection: str,
+    workflow_steps: List[Dict],
+    request_started: float,
+    error: str,
+) -> None:
+    append_trace_log(
+        trace_log_path,
+        {
+            "query_id": query_id,
+            "query": query,
+            "query_type": query_type,
+            "decision": "error",
+            "prompt_version": prompt_version,
+            "model": llm,
+            "embed_model": embed_model,
+            "collection": collection,
+            "latency_ms": round((perf_counter() - request_started) * 1000, 2),
+            "assessment": None,
+            "workflow_steps": workflow_steps,
+            "citations": [],
+            "error": error,
+        },
+    )
+
+
+def build_prompt(query: str, context: str, query_type: str, prompt_version: str) -> str:
+    action_line = (
+        "Answer the question directly."
+        if query_type == "question"
+        else "Fulfill the user's request directly using only the context."
+    )
+    return f"""Prompt version: {prompt_version}
+You are a helpful assistant for a multilingual policy knowledge base.
+{action_line}
+Answer using ONLY the CONTEXT.
+If the context is insufficient, say exactly: "I don't know based on the current sources."
+Every factual claim must be grounded in the cited chunks.
+Keep the answer concise and professional.
+
+CONTEXT:
+{context}
+
+QUESTION:
+{query}
+
+OUTPUT FORMAT:
+- Answer (short, direct)
+- Citations: list the bracket numbers you used, e.g. [1], [3]
+"""
+
+
+def apply_generation_guardrails(answer: str, citations: List[Dict], max_answer_chars: int) -> Dict:
+    cleaned = answer.strip()
+    if len(cleaned) > max_answer_chars:
+        cleaned = cleaned[: max_answer_chars - 3].rstrip() + "..."
+
+    citations_line_present = "citations:" in cleaned.lower()
+    if not citations_line_present:
+        refs = ", ".join(f"[{c['n']}]" for c in citations[:3]) if citations else "[]"
+        cleaned = f"{cleaned}\n\nCitations: {refs}"
+
+    return {
+        "answer": cleaned,
+        "citations_line_added": not citations_line_present,
+        "answer_chars": len(cleaned),
+    }
+
+
 @lru_cache(maxsize=8)
 def get_index_and_settings(
     qdrant: str,
@@ -226,22 +354,48 @@ def run_guarded_rag_query(
     min_avg_score: float = default_min_avg_score(),
     min_distinct_docs: int = default_min_distinct_docs(),
     max_context_chars: int = default_max_context_chars(),
+    max_answer_chars: int = default_max_answer_chars(),
+    prompt_version: str = DEFAULT_PROMPT_VERSION,
+    trace_log_path: str = DEFAULT_TRACE_LOG_PATH,
 ) -> Dict:
+    query_id = str(uuid4())
+    workflow_steps = []
+    request_started = perf_counter()
     load_env()
+    step_started = perf_counter()
+    query_type = classify_query_type(query)
+    workflow_steps.append(
+        make_step("classify_query", "completed", step_started, {"query_type": query_type})
+    )
 
     try:
         import llama_index
         import qdrant_client
     except ModuleNotFoundError as exc:
-        raise RuntimeError(
+        message = (
             "Missing RAG dependencies. Install: "
             "pip install -U python-dotenv llama-index llama-index-vector-stores-qdrant "
             "llama-index-embeddings-huggingface llama-index-llms-ollama fastapi uvicorn"
-        ) from exc
+        )
+        append_error_trace(
+            trace_log_path=trace_log_path,
+            query_id=query_id,
+            query=query,
+            query_type=query_type,
+            prompt_version=prompt_version,
+            llm=llm,
+            embed_model=embed_model,
+            collection=collection,
+            workflow_steps=workflow_steps,
+            request_started=request_started,
+            error=message,
+        )
+        raise RuntimeError(message) from exc
 
     resolved_device = default_sentence_transformer_device(device)
 
     try:
+        step_started = perf_counter()
         index, settings = get_index_and_settings(
             qdrant=qdrant,
             collection=collection,
@@ -252,9 +406,37 @@ def run_guarded_rag_query(
         filters = build_filters(lang, doc_type)
         retriever = index.as_retriever(similarity_top_k=top_k, filters=filters)
         nodes = retriever.retrieve(query)
+        workflow_steps.append(
+            make_step(
+                "retrieve",
+                "completed",
+                step_started,
+                {
+                    "top_k": top_k,
+                    "lang": lang.upper() if lang else None,
+                    "doc_type": doc_type.lower() if doc_type else None,
+                    "retrieved_nodes": len(nodes),
+                },
+            )
+        )
     except Exception as exc:
-        raise RuntimeError(explain_runtime_error(exc, llm)) from exc
+        message = explain_runtime_error(exc, llm)
+        append_error_trace(
+            trace_log_path=trace_log_path,
+            query_id=query_id,
+            query=query,
+            query_type=query_type,
+            prompt_version=prompt_version,
+            llm=llm,
+            embed_model=embed_model,
+            collection=collection,
+            workflow_steps=workflow_steps,
+            request_started=request_started,
+            error=message,
+        )
+        raise RuntimeError(message) from exc
 
+    step_started = perf_counter()
     assessment = assess_retrieval(
         nodes,
         min_score=min_score,
@@ -269,8 +451,26 @@ def run_guarded_rag_query(
         assessment["grounded"] = False
         assessment["reasons"] = assessment["reasons"] + ["empty_context_budget"]
 
+    workflow_steps.append(
+        make_step(
+            "guardrail_assessment",
+            "completed",
+            step_started,
+            {
+                "decision": "grounded" if assessment["grounded"] else "abstain",
+                "top_score": assessment["top_score"],
+                "avg_score": assessment["avg_score"],
+                "distinct_docs": assessment["distinct_docs"],
+                "reasons": assessment["reasons"],
+            },
+        )
+    )
+
     result = {
+        "query_id": query_id,
         "query": query,
+        "query_type": query_type,
+        "prompt_version": prompt_version,
         "decision": "grounded" if assessment["grounded"] else "abstain",
         "answer": "I don't know based on the current sources.",
         "clarifying_question": None,
@@ -285,31 +485,96 @@ def run_guarded_rag_query(
         "embed_model": embed_model,
         "device": resolved_device,
         "collection": collection,
+        "workflow_steps": workflow_steps,
     }
 
     if not assessment["grounded"]:
         result["clarifying_question"] = build_clarifying_question(lang, doc_type)
+        result["latency_ms"] = round((perf_counter() - request_started) * 1000, 2)
+        append_trace_log(
+            trace_log_path,
+            {
+                "query_id": query_id,
+                "query": query,
+                "query_type": query_type,
+                "decision": result["decision"],
+                "prompt_version": prompt_version,
+                "model": llm,
+                "embed_model": embed_model,
+                "collection": collection,
+                "latency_ms": result["latency_ms"],
+                "assessment": assessment,
+                "workflow_steps": workflow_steps,
+                "citations": citations,
+                "error": None,
+            },
+        )
         return result
 
-    prompt = f"""You are a helpful assistant.
-Answer using ONLY the CONTEXT.
-If the context is insufficient, say exactly: "I don't know based on the current sources."
-Every factual claim must be grounded in the cited chunks.
-
-CONTEXT:
-{context['text']}
-
-QUESTION:
-{query}
-
-OUTPUT FORMAT:
-- Answer (short, direct)
-- Citations: list the bracket numbers you used, e.g. [1], [3]
-"""
+    prompt = build_prompt(query, context["text"], query_type=query_type, prompt_version=prompt_version)
 
     try:
-        result["answer"] = settings.llm.complete(prompt).text.strip()
+        step_started = perf_counter()
+        raw_answer = settings.llm.complete(prompt).text.strip()
+        workflow_steps.append(
+            make_step(
+                "generate_answer",
+                "completed",
+                step_started,
+                {"prompt_chars": len(prompt), "context_chars": context["chars"]},
+            )
+        )
     except Exception as exc:
-        raise RuntimeError(explain_runtime_error(exc, llm)) from exc
+        message = explain_runtime_error(exc, llm)
+        append_error_trace(
+            trace_log_path=trace_log_path,
+            query_id=query_id,
+            query=query,
+            query_type=query_type,
+            prompt_version=prompt_version,
+            llm=llm,
+            embed_model=embed_model,
+            collection=collection,
+            workflow_steps=workflow_steps,
+            request_started=request_started,
+            error=message,
+        )
+        raise RuntimeError(message) from exc
 
+    step_started = perf_counter()
+    post_guardrails = apply_generation_guardrails(raw_answer, citations, max_answer_chars=max_answer_chars)
+    result["answer"] = post_guardrails["answer"]
+    workflow_steps.append(
+        make_step(
+            "apply_guardrails",
+            "completed",
+            step_started,
+            {
+                "answer_chars": post_guardrails["answer_chars"],
+                "citations_line_added": post_guardrails["citations_line_added"],
+                "max_answer_chars": max_answer_chars,
+            },
+        )
+    )
+    result["latency_ms"] = round((perf_counter() - request_started) * 1000, 2)
+
+    append_trace_log(
+        trace_log_path,
+        {
+            "query_id": query_id,
+            "query": query,
+            "query_type": query_type,
+            "decision": result["decision"],
+            "prompt_version": prompt_version,
+            "model": llm,
+            "embed_model": embed_model,
+            "collection": collection,
+            "latency_ms": result["latency_ms"],
+            "assessment": assessment,
+            "workflow_steps": workflow_steps,
+            "citations": citations,
+            "answer_preview": result["answer"][:240],
+            "error": None,
+        },
+    )
     return result

@@ -11,7 +11,10 @@ from scripts.rag_service import print_guardrail_report, run_guarded_rag_query
 from scripts.runtime import (
     DEFAULT_COLLECTION,
     DEFAULT_EMBED_MODEL,
+    DEFAULT_PROMPT_VERSION,
     DEFAULT_QDRANT_URL,
+    DEFAULT_TRACE_LOG_PATH,
+    default_max_answer_chars,
     default_max_context_chars,
     default_min_avg_score,
     default_min_distinct_docs,
@@ -31,6 +34,8 @@ def main():
     ap.add_argument("--llm", default="ollama", choices=["ollama", "openai"])
     ap.add_argument("--embed_model", default=DEFAULT_EMBED_MODEL)
     ap.add_argument("--device", default="auto", choices=["auto", "cpu", "mps", "cuda"])
+    ap.add_argument("--prompt_version", default=DEFAULT_PROMPT_VERSION)
+    ap.add_argument("--trace_log_path", default=DEFAULT_TRACE_LOG_PATH)
     ap.add_argument(
         "--min_score",
         type=float,
@@ -55,6 +60,12 @@ def main():
         default=default_max_context_chars(),
         help="Trim retrieved context to avoid huge prompts",
     )
+    ap.add_argument(
+        "--max_answer_chars",
+        type=int,
+        default=default_max_answer_chars(),
+        help="Trim generated answer length after guardrails",
+    )
     args = ap.parse_args()
 
     try:
@@ -72,9 +83,23 @@ def main():
             min_avg_score=args.min_avg_score,
             min_distinct_docs=args.min_distinct_docs,
             max_context_chars=args.max_context_chars,
+            max_answer_chars=args.max_answer_chars,
+            prompt_version=args.prompt_version,
+            trace_log_path=args.trace_log_path,
         )
     except RuntimeError as exc:
         raise SystemExit(str(exc)) from exc
+
+    print("\n=== WORKFLOW ===\n")
+    print(f"query_id={result['query_id']}")
+    print(f"query_type={result['query_type']}")
+    print(f"prompt_version={result['prompt_version']}")
+    print(f"latency_ms={result['latency_ms']:.2f}")
+    for step in result["workflow_steps"]:
+        print(
+            f"- {step['step']} status={step['status']} duration_ms={step['duration_ms']:.2f} "
+            f"details={step['details']}"
+        )
 
     print_guardrail_report(result["assessment"])
 

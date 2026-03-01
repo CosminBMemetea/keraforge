@@ -35,3 +35,7 @@ curl -s http://127.0.0.1:8000/health
 curl -s http://127.0.0.1:8000/query \
   -H "Content-Type: application/json" \
   -d '{"query":"politica de date sintetice","lang":"RO","llm":"ollama","top_k":2,"max_context_chars":900}'
+
+### Day V
+python scripts/rag_query.py "politica de date sintetice" --lang RO --llm ollama
+tail -n 1 data/logs/rag_traces.jsonl

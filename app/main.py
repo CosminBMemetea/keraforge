@@ -9,7 +9,10 @@ from scripts.rag_service import run_guarded_rag_query
 from scripts.runtime import (
     DEFAULT_COLLECTION,
     DEFAULT_EMBED_MODEL,
+    DEFAULT_PROMPT_VERSION,
     DEFAULT_QDRANT_URL,
+    DEFAULT_TRACE_LOG_PATH,
+    default_max_answer_chars,
     default_max_context_chars,
     default_min_avg_score,
     default_min_distinct_docs,
@@ -47,6 +50,13 @@ class AssessmentOut(BaseModel):
     retrieved_nodes: int
 
 
+class WorkflowStepOut(BaseModel):
+    step: str
+    status: str
+    duration_ms: float
+    details: dict
+
+
 class QueryRequest(BaseModel):
     query: str = Field(..., min_length=3)
     qdrant: str = DEFAULT_QDRANT_URL
@@ -57,20 +67,27 @@ class QueryRequest(BaseModel):
     llm: str = Field(default="ollama", pattern="^(ollama|openai)$")
     embed_model: str = DEFAULT_EMBED_MODEL
     device: str = Field(default="auto", pattern="^(auto|cpu|mps|cuda)$")
+    prompt_version: str = DEFAULT_PROMPT_VERSION
+    trace_log_path: str = DEFAULT_TRACE_LOG_PATH
     min_score: float = Field(default_factory=default_min_score, ge=0.0, le=1.0)
     min_avg_score: float = Field(default_factory=default_min_avg_score, ge=0.0, le=1.0)
     min_distinct_docs: int = Field(default_factory=default_min_distinct_docs, ge=1, le=10)
     max_context_chars: int = Field(default_factory=default_max_context_chars, ge=200, le=12000)
+    max_answer_chars: int = Field(default_factory=default_max_answer_chars, ge=120, le=4000)
 
 
 class QueryResponse(BaseModel):
+    query_id: str
     query: str
+    query_type: str
+    prompt_version: str
     decision: str
     answer: str
     clarifying_question: Optional[str] = None
     assessment: AssessmentOut
     citations: List[CitationOut]
     top_chunks: List[ChunkOut]
+    workflow_steps: List[WorkflowStepOut]
     context_chars: int
     context_nodes_used: int
     lang: Optional[str] = None
@@ -84,7 +101,7 @@ class QueryResponse(BaseModel):
 
 app = FastAPI(
     title="KeraForge RAG API",
-    version="0.1.0",
+    version="0.5.0",
     description="Guarded multilingual RAG API over Qdrant with citations and abstain behavior.",
 )
 
@@ -311,5 +328,5 @@ def query(payload: QueryRequest) -> QueryResponse:
         ) else 500
         raise HTTPException(status_code=status_code, detail=message) from exc
 
-    latency_ms = round((perf_counter() - started) * 1000, 2)
-    return QueryResponse(**result, latency_ms=latency_ms)
+    result["latency_ms"] = round((perf_counter() - started) * 1000, 2)
+    return QueryResponse(**result)
