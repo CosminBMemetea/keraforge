@@ -28,3 +28,10 @@ python scripts/rag_query.py "politica de date sintetice" --lang RO --llm ollama 
 ### Day III
 python scripts/rag_query.py "politica de date sintetice" --lang RO --llm ollama --top_k 2 --max_context_chars 900
 # If retrieval is weak, the script abstains and asks a clarifying question.
+
+### Day IV
+uvicorn app.main:app --reload
+curl -s http://127.0.0.1:8000/health
+curl -s http://127.0.0.1:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{"query":"politica de date sintetice","lang":"RO","llm":"ollama","top_k":2,"max_context_chars":900}'

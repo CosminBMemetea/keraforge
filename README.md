@@ -17,7 +17,7 @@ python -m pip install --upgrade pip
 
 pip install qdrant-client sentence-transformers python-frontmatter python-dotenv \
   llama-index llama-index-vector-stores-qdrant llama-index-embeddings-huggingface \
-  llama-index-llms-ollama
+  llama-index-llms-ollama fastapi uvicorn
 ```
 
 Copy the local config template and set your own keys if you need OpenAI:
@@ -72,7 +72,7 @@ python scripts/rag_query.py "politica de date sintetice" --lang RO --llm ollama
 python scripts/rag_query.py "zgodność dane syntetyczne" --lang PL --llm ollama --device cpu
 ```
 
-Day 3 guardrails are built into `scripts/rag_query.py`:
+Guardrails are built into `scripts/rag_query.py`:
 
 - explicit retrieval assessment before generation
 - abstain behavior when retrieval is weak
@@ -84,6 +84,63 @@ You can tune the trust thresholds from the CLI:
 ```bash
 python scripts/rag_query.py "politica de date sintetice" --lang RO --llm ollama \
   --top_k 2 --max_context_chars 900 --min_score 0.35 --min_avg_score 0.25
+```
+
+## API
+
+Run the local API:
+
+```bash
+source .venv/bin/activate
+uvicorn app.main:app --reload
+```
+
+Open the local console:
+
+```bash
+open http://127.0.0.1:8000/
+```
+
+Example request:
+
+```bash
+curl -s http://127.0.0.1:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "politica de date sintetice",
+    "lang": "RO",
+    "llm": "ollama",
+    "top_k": 2,
+    "max_context_chars": 900
+  }'
+```
+
+Example response shape:
+
+```json
+{
+  "query": "politica de date sintetice",
+  "decision": "grounded",
+  "answer": "...",
+  "clarifying_question": null,
+  "assessment": {
+    "grounded": true,
+    "reasons": ["ok"],
+    "top_score": 0.63,
+    "avg_score": 0.63,
+    "distinct_docs": 1,
+    "retrieved_nodes": 1
+  },
+  "citations": [
+    {
+      "n": 1,
+      "score": 0.63,
+      "title": "Politică de generare a datelor sintetice",
+      "src": "docs/policy_ro.md#chunk=0"
+    }
+  ],
+  "latency_ms": 1234.56
+}
 ```
 
 ## Troubleshooting
@@ -100,3 +157,6 @@ If Ollama says the model is missing, pull it first:
 ```bash
 ollama pull qwen2.5:1.5b-instruct
 ```
+## Demo
+
+![alt text](demo-v0.1.0p0.png)
